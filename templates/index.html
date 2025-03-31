@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Drawing Canvas</title>
+  <style>
+    body {
+      background-color: #d3d3d3;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      flex-direction: column;
+      margin: 0;
+      overflow: hidden;
+    }
+    .canvas-container {
+      background-color: white;
+      padding: 5px;
+      display: inline-block;
+      position: relative;
+      transform: translateY(5px); /* Adjust this value as needed */
+    }
+    .canvas {
+      display: grid;
+      grid-template-columns: repeat(128, 2px); /* Adjusted cell size */
+      grid-template-rows: repeat(128, 2px); /* Adjusted cell size */
+      gap: 0; /* Ensure no gap between cells */
+    }
+    .cell {
+      width: 2px; /* Adjusted cell size */
+      height: 2px; /* Adjusted cell size */
+      background-color: white;
+      box-sizing: border-box; /* Ensure padding and borders are included in the element's total width and height */
+      margin: 0; /* Ensure no margin between cells */
+      border: none; /* Remove borders to avoid gaps */
+    }
+    .button-container {
+      margin-top: 10px;
+    }
+    button {
+      margin: 5px;
+    }
+    .time-display {
+      margin-top: 10px;
+      font-size: 1.2em;
+    }
+  </style>
+</head>
+<body>
+  <div class="canvas-container">
+    <div class="canvas" id="canvas">
+      <!-- Cells will be generated here -->
+    </div>
+  </div>
+  <div class="button-container">
+    <button id="resetButton">Reset</button>
+    <button id="toggleButton">Pen</button>
+    <button id="uploadButton">Upload</button>
+  </div>
+  <div class="time-display" id="timeDisplay"></div>
+
+  <script>
+    const canvas = document.getElementById('canvas');
+    let toolMode = 'pen';  // Tool mode: 'pen' or 'eraser'
+    let isDrawing = false;
+    const strokeSize = 5; // Radius of the brush in pixels
+
+    // Create 128x128 grid
+    function createCanvas() {
+      for (let i = 0; i < 128 * 128; i++) {
+        const cell = document.createElement('div');
+        cell.className = 'cell';
+        cell.dataset.color = 'white';
+        canvas.appendChild(cell);
+      }
+    }
+
+    // Initialize the canvas and button text
+    function initialize() {
+      createCanvas();
+      updateButtonText(); // Ensure the button text is updated
+    }
+
+    // Event listeners
+    function startDrawing(event) {
+      event.preventDefault(); // Prevent default behavior
+      isDrawing = true;
+      handleCellDraw(event);
+    }
+
+    function stopDrawing(event) {
+      event.preventDefault(); // Prevent default behavior
+      isDrawing = false;
+    }
+
+    function draw(event) {
+      event.preventDefault(); // Prevent default behavior
+      if (isDrawing) {
+        handleCellDraw(event);
+      }
+    }
+
+    // Mouse events
+    canvas.addEventListener('mousedown', startDrawing);
+    canvas.addEventListener('mouseup', stopDrawing);
+    canvas.addEventListener('mouseleave', stopDrawing); // Stop drawing if mouse leaves the canvas
+    canvas.addEventListener('mousemove', draw);
+
+    // Touch events
+    canvas.addEventListener('touchstart', startDrawing);
+    canvas.addEventListener('touchend', stopDrawing);
+    canvas.addEventListener('touchcancel', stopDrawing); // Stop drawing if touch is canceled
+    canvas.addEventListener('touchmove', draw);
+
+    document.getElementById('resetButton').addEventListener('click', () => {
+      const cells = canvas.children;
+      for (let i = 0; i < cells.length; i++) {
+        cells[i].style.backgroundColor = 'white';
+        cells[i].dataset.color = 'white';
+      }
+    });
+
+    document.getElementById('toggleButton').addEventListener('click', () => {
+      toolMode = toolMode === 'pen' ? 'eraser' : 'pen';
+      updateButtonText();
+    });
+
+    document.getElementById('uploadButton').addEventListener('click', () => {
+      const matrix = [];
+      const cells = canvas.children;
+      for (let i = 0; i < cells.length; i++) {
+        matrix.push(cells[i].dataset.color === 'black' ? 1 : 0);
+      }
+      fetch('/upload', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ matrix }),
+      }).then(response => response.json())
+        .then(data => {
+          console.log(data.message);
+          document.getElementById('timeDisplay').innerText = "Distribucija: " + data.time;
+        })
+        .catch(error => console.error('Error:', error));
+    });
+
+    function handleCellDraw(event) {
+      const cells = getCellsFromEvent(event);
+      cells.forEach(cell => updateCell(cell));
+    }
+
+    function updateCell(cell) {
+      if (cell && cell.classList.contains('cell')) { // Ensure we're updating only cells
+        if (toolMode === 'pen') {
+          cell.style.backgroundColor = 'black';
+          cell.dataset.color = 'black';
+        } else {
+          cell.style.backgroundColor = 'white';
+          cell.dataset.color = 'white';
+        }
+      }
+    }
+
+    function getCellsFromEvent(event) {
+      const cells = [];
+      const rect = canvas.getBoundingClientRect();
+      const x = (event.touches ? event.touches[0].clientX : event.clientX) - rect.left;
+      const y = (event.touches ? event.touches[0].clientY : event.clientY) - rect.top;
+
+      const centerX = Math.floor(x / 2); // Adjust for smaller cell size
+      const centerY = Math.floor(y / 2); // Adjust for smaller cell size
+
+      // Loop over a bounding box around the circle
+      for (let dy = -strokeSize; dy <= strokeSize; dy++) {
+        for (let dx = -strokeSize; dx <= strokeSize; dx++) {
+          if (Math.sqrt(dx * dx + dy * dy) <= strokeSize) {
+            const nx = centerX + dx;
+            const ny = centerY + dy;
+            if (nx >= 0 && ny >= 0 && nx < 128 && ny < 128) {
+              const cell = canvas.children[ny * 128 + nx];
+              if (cell) cells.push(cell);
+            }
+          }
+        }
+      }
+
+      return cells;
+    }
+
+    function updateButtonText() {
+      const button = document.getElementById('toggleButton');
+      button.textContent = toolMode === 'pen' ? 'Eraser' : 'Pen';
+    }
+
+    // Throttle function to limit update frequency
+    function throttle(func, limit) {
+      let lastFunc;
+      let lastRan;
+      return function() {
+        const context = this;
+        const args = arguments;
+        if (!lastRan) {
+          func.apply(context, args);
+          lastRan = Date.now();
+        } else {
+          clearTimeout(lastFunc);
+          lastFunc = setTimeout(function() {
+            if ((Date.now() - lastRan) >= limit) {
+              func.apply(context, args);
+              lastRan = Date.now();
+            }
+          }, limit - (Date.now() - lastRan));
+        }
+      };
+    }
+
+    const throttledHandleCellDraw = throttle(handleCellDraw, 10); // Set throttle time to 10ms
+
+    // Attach throttled event listeners
+    canvas.addEventListener('mousemove', throttledHandleCellDraw);
+    canvas.addEventListener('touchmove', throttledHandleCellDraw);
+
+    // Ensure initialization happens immediately on page load
+    window.onload = () => {
+      initialize();
+    };
+  </script>
+</body>
+</html>
